@@ -1,18 +1,22 @@
 #![allow(unused)]
 
+use std::error::Error;
 use clap::Parser;
+use std::process;
+use std::fs;
+use std::path::PathBuf;
 
 /// Sorts pics from one directory into another one
-#[derive(Parser,Debug)]
+#[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Cli {
     /// The path from where the pics will be read
     #[clap(parse(from_os_str))]
-    source_dir: std::path::PathBuf,
+    source_dir: PathBuf,
 
     /// The path to where the pics will be written. This must not be the source_dir!
     #[clap(parse(from_os_str))]
-    destination_dir: std::path::PathBuf,
+    destination_dir: PathBuf,
 
     /// If set the pics will be moved instead copied
     #[clap(short, long, value_parser, default_value_t = false)]
@@ -51,6 +55,61 @@ struct Cli {
 
 
 fn main() {
-    let args = Cli::parse();
-    println!("{:#?}", args);
+    let args: Cli = Cli::parse();
+    if (args.verbose) {
+        println!("Running with {:?}", args);
+    }
+    if !args.source_dir.is_dir() {
+        println!("source_dir must be a dir");
+        process::exit(1);
+    }
+    if !args.source_dir.exists() {
+        println!("source_dir must exist");
+        process::exit(1);
+    }
+    if !args.destination_dir.exists() & &!args.dry_run {
+        if args.verbose {
+            println!("Creating Destination dir {}", args.destination_dir.display());
+        }
+        let dir_created = fs::create_dir_all(&args.destination_dir);
+        match dir_created {
+            Ok(n) => if args.verbose { println!("Created {} {:?}", args.destination_dir.display(), n) },
+            Err(e) => {
+                println!("Could not create destination dir {} {}", args.destination_dir.display(), e.to_string());
+                process::exit(1);
+            }
+        }
+    }
+
+    recurse_dir(&args.source_dir, args.verbose);
+// here we have source and destination
+}
+
+fn recurse_dir(path: &PathBuf, verbose: bool) {
+    if verbose {
+        println!("Processing dir {:?}", path);
+    }
+
+    let paths = fs::read_dir(path);
+    match paths {
+        Ok(p) => {
+            for path in p {
+                match path {
+                    Ok(f) => {
+                        if f.path().is_dir() {
+                            recurse_dir(&f.path(), verbose);
+                        } else if verbose {
+                            println!("Found: {}", f.path().display())
+                        }
+                    }
+                    Err(e) => {
+                        println!("Error: {}", e.to_string());
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            println!("Error entering path: {:?}: {}", path, e.to_string());
+        }
+    }
 }
