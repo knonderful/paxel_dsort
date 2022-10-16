@@ -1,10 +1,12 @@
 #![allow(unused)]
 
-use std::error::Error;
 use clap::Parser;
-use std::process;
+use exif::{DateTime, *};
+use std::error::Error;
 use std::fs;
+use std::fs::File;
 use std::path::PathBuf;
+use std::process;
 
 /// Sorts pics from one directory into another one
 #[derive(Parser, Debug)]
@@ -50,13 +52,11 @@ struct Cli {
     /// If set neither the directories are created, nor the pics copied or moved
     #[clap(short, long, value_parser, default_value_t = false)]
     dry_run: bool,
-
 }
-
 
 fn main() {
     let args: Cli = Cli::parse();
-    if (args.verbose) {
+    if args.verbose {
         println!("Running with {:?}", args);
     }
     if !args.source_dir.is_dir() {
@@ -69,20 +69,31 @@ fn main() {
     }
     if !args.destination_dir.exists() & &!args.dry_run {
         if args.verbose {
-            println!("Creating Destination dir {}", args.destination_dir.display());
+            println!(
+                "Creating Destination dir {}",
+                args.destination_dir.display()
+            );
         }
         let dir_created = fs::create_dir_all(&args.destination_dir);
         match dir_created {
-            Ok(n) => if args.verbose { println!("Created {} {:?}", args.destination_dir.display(), n) },
+            Ok(n) => {
+                if args.verbose {
+                    println!("Created {} {:?}", args.destination_dir.display(), n)
+                }
+            }
             Err(e) => {
-                println!("Could not create destination dir {} {}", args.destination_dir.display(), e.to_string());
+                println!(
+                    "Could not create destination dir {} {}",
+                    args.destination_dir.display(),
+                    e.to_string()
+                );
                 process::exit(1);
             }
         }
     }
 
     recurse_dir(&args.source_dir, args.verbose);
-// here we have source and destination
+    // here we have source and destination
 }
 
 fn recurse_dir(path: &PathBuf, verbose: bool) {
@@ -101,6 +112,7 @@ fn recurse_dir(path: &PathBuf, verbose: bool) {
                         } else if verbose {
                             println!("Found: {}", f.path().display())
                         }
+                        print_exif(&f.path(), verbose)
                     }
                     Err(e) => {
                         println!("Error: {}", e.to_string());
@@ -110,6 +122,30 @@ fn recurse_dir(path: &PathBuf, verbose: bool) {
         }
         Err(e) => {
             println!("Error entering path: {:?}: {}", path, e.to_string());
+        }
+    }
+}
+
+fn print_exif(path: &PathBuf, verbose: bool) {
+    let file = std::fs::File::open(path).unwrap();
+    let mut bufreader = std::io::BufReader::new(&file);
+    let exifreader = exif::Reader::new();
+    let exif = exifreader.read_from_container(&mut bufreader);
+    match exif {
+        Ok(x) => match x.get_field(Tag::DateTime, In::PRIMARY) {
+            Some(date_time) => match date_time.value {
+                Value::Ascii(ref a) => {
+                    let dt = DateTime::from_ascii(&a[0]);
+                    if verbose {
+                        println!("Date Time: {:?}", dt);
+                    }
+                }
+                _ => eprintln!("hu?"),
+            },
+            None => eprintln!("Orientation tag is missing"),
+        },
+        Err(e) => {
+            println!("Error: {}", e.to_string());
         }
     }
 }
