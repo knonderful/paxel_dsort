@@ -1,5 +1,6 @@
 #![allow(unused)]
 
+use std::collections::VecDeque;
 use clap::Parser;
 use exif::{DateTime, *};
 use std::error::Error;
@@ -7,6 +8,14 @@ use std::fs;
 use std::fs::File;
 use std::path::PathBuf;
 use std::process;
+
+#[derive(Debug)]
+pub struct CopyImage {
+    pub source: PathBuf,
+    pub date_time: DateTime,
+}
+
+impl CopyImage {}
 
 /// Sorts pics from one directory into another one
 #[derive(Parser, Debug)]
@@ -48,6 +57,10 @@ struct Cli {
     /// If set verbose output is created
     #[clap(short, long, value_parser, default_value_t = false)]
     verbose: bool,
+
+    /// If set verbose output is created
+    #[clap(long, value_parser, default_value_t = false)]
+    print_exif_dates: bool,
 
     /// If set neither the directories are created, nor the pics copied or moved
     #[clap(short, long, value_parser, default_value_t = false)]
@@ -92,60 +105,200 @@ fn main() {
         }
     }
 
-    recurse_dir(&args.source_dir, args.verbose);
-    // here we have source and destination
-}
+    let mut unprocessed_directories: VecDeque<PathBuf> = VecDeque::new();
+    let mut files: VecDeque<CopyImage> = VecDeque::new();
+    let mut missing_exif: i32 = 0;
+    let mut has_exif: i32 = 0;
+    let mut total_dirs: i32 = 0;
+    let mut total_files: i32 = 0;
 
-fn recurse_dir(path: &PathBuf, verbose: bool) {
-    if verbose {
-        println!("Processing dir {:?}", path);
-    }
-
-    let paths = fs::read_dir(path);
-    match paths {
-        Ok(p) => {
-            for path in p {
-                match path {
-                    Ok(f) => {
-                        if f.path().is_dir() {
-                            recurse_dir(&f.path(), verbose);
-                        } else if verbose {
-                            println!("Found: {}", f.path().display())
+    // add surce dir in the queue
+    unprocessed_directories.push_back(args.source_dir);
+    println!("Collecting files");
+    while !unprocessed_directories.is_empty() {
+        total_dirs += 1;
+        let dir = unprocessed_directories.pop_front().unwrap();
+        {
+            if args.verbose {
+                println!("Processing dir {:?}", dir);
+            }
+            let read_dir_result = fs::read_dir(&dir);
+            match read_dir_result {
+                Ok(paths) => {
+                    for dir_entry_result in paths {
+                        match dir_entry_result {
+                            Ok(dir_entry) => {
+                                if dir_entry.path().is_dir() {
+                                    if args.recursive {
+                                        unprocessed_directories.push_back(dir_entry.path());
+                                    }
+                                    continue;
+                                }
+                                total_files += 1;
+                                let open_result = std::fs::File::open(dir_entry.path());
+                                match open_result {
+                                    Ok(file) => {
+                                        let mut buf_reader = std::io::BufReader::new(&file);
+                                        let exif_reader = exif::Reader::new();
+                                        let exif_result = exif_reader.read_from_container(&mut buf_reader);
+                                        match exif_result {
+                                            Ok(exif) => match exif.get_field(Tag::DateTime, In::PRIMARY) {
+                                                Some(date_time) => {
+                                                    match date_time.value {
+                                                        Value::Ascii(ref a) => {
+                                                            let dt = DateTime::from_ascii(&a[0]);
+                                                            if args.print_exif_dates {
+                                                                println!("{}: {:?}", dir_entry.path().display(), dt);
+                                                            }
+                                                            match dt {
+                                                                Ok(dt) => {
+                                                                    if dt.year > 0 && dt.day > 0 && dt.month > 0 && dt.day < 32 && dt.month < 13 {
+                                                                        files.push_back(CopyImage { source: dir_entry.path(), date_time: dt });
+                                                                        has_exif += 1;
+                                                                    } else {
+                                                                        if args.verbose {
+                                                                            eprintln!("invalid date");
+                                                                            print_tags(&exif);
+                                                                        }
+                                                                    }
+                                                                }
+                                                                _ => {
+                                                                    if args.verbose {
+                                                                        eprintln!("Could not parse date_time from exif");
+                                                                        print_tags(&exif);
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                        _ => {
+                                                            if args.verbose {
+                                                                eprintln!(" ERR date time value {:?}", file);
+                                                                print_tags(&exif);
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                None => {
+                                                    if args.verbose {
+                                                        eprintln!(" ERR date time missing {:?}", file);
+                                                        print_tags(&exif);
+                                                    }
+                                                    missing_exif += 1;
+                                                }
+                                            }
+                                            Err(e) => {
+                                                if args.verbose {
+                                                    eprintln!(" ERR exif missing {:?}", file);
+                                                }
+                                                missing_exif += 1;
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        if args.verbose {
+                                            eprintln!(" ERR can't open dir {:?}", dir_entry.path());
+                                        }
+                                        missing_exif += 1;
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                if args.verbose {
+                                    println!("Error: {}", e.to_string());
+                                }
+                                missing_exif += 1;
+                            }
                         }
-                        print_exif(&f.path(), verbose)
                     }
-                    Err(e) => {
-                        println!("Error: {}", e.to_string());
+                }
+                Err(e) => {
+                    if args.verbose {
+                        println!("Error entering path: {:?}: {}", dir, e.to_string());
                     }
+                    missing_exif += 1;
                 }
             }
         }
-        Err(e) => {
-            println!("Error entering path: {:?}: {}", path, e.to_string());
+    }
+
+    println!("Found {} files in {} dirs with {} exif dates", total_files, total_dirs, has_exif);
+    println!("There were {} files without exif ", missing_exif);
+    if args.verbose {
+        println!("Result: {:?}", files);
+    }
+
+    let destination = args.destination_dir.to_str().unwrap();
+    let mut total = 0u64;
+    let mut copy = 0u32;
+    while !files.is_empty() {
+        let target = files.pop_front();
+        match target {
+            Some(image) => {
+                match image.source.file_name() {
+                    Some(name) => {
+                        let mut path = PathBuf::new();
+                        path.push(destination);
+                        path.push(image.date_time.year.to_string());
+                        path.push(image.date_time.month.to_string());
+                        path.push(image.date_time.day.to_string());
+                        if !args.dry_run {
+                            let result = fs::create_dir_all(&path);
+                            match result {
+                                Ok(value) => {}
+                                Err(e) => {
+                                    eprintln!("Could not create {:?}", path);
+                                    continue;
+                                }
+                            }
+                        } else {
+                            println!("Would create {:?}", path);
+                        }
+
+                        path.push(name);
+
+                        if !args.dry_run {
+                            if !args.r#move {
+                                let result = fs::copy(image.source, &path);
+                                match result {
+                                    Ok(value) => {
+                                        if args.verbose {
+                                            println!("Copied {:?} bytes to {:?}", value, path);
+                                        }
+                                        total += value;
+                                        copy += 1;
+                                    }
+                                    Err(e) => {}
+                                }
+                            } else {
+                                let result = fs::rename(image.source, &path);
+                                match result {
+                                    Ok(value) => {
+                                        let size = fs::metadata(&path).unwrap().len();
+                                        total += size;
+                                        if args.verbose {
+                                            println!("Moved {:?} bytes to {:?}", size, path);
+                                        }
+                                        copy += 1;
+                                    }
+                                    Err(e) => {}
+                                }
+                            }
+                        } else {
+                            println!("Would copy from {:?} to {:?}", image.source, path);
+                        }
+                    }
+                    None => { eprintln!("File without name") }
+                }
+            }
+            _ => eprintln!("woot?")
         }
     }
+
+    println!("Copied or moved {} files with {} bytes", copy, total);
 }
 
-fn print_exif(path: &PathBuf, verbose: bool) {
-    let file = std::fs::File::open(path).unwrap();
-    let mut bufreader = std::io::BufReader::new(&file);
-    let exifreader = exif::Reader::new();
-    let exif = exifreader.read_from_container(&mut bufreader);
-    match exif {
-        Ok(x) => match x.get_field(Tag::DateTime, In::PRIMARY) {
-            Some(date_time) => match date_time.value {
-                Value::Ascii(ref a) => {
-                    let dt = DateTime::from_ascii(&a[0]);
-                    if verbose {
-                        println!("Date Time: {:?}", dt);
-                    }
-                }
-                _ => eprintln!("hu?"),
-            },
-            None => eprintln!("Orientation tag is missing"),
-        },
-        Err(e) => {
-            println!("Error: {}", e.to_string());
-        }
+fn print_tags(exif: &Exif) {
+    for f in exif.fields() {
+        eprintln!("{} {} {}", f.tag, f.ifd_num, f.display_value().with_unit(exif));
     }
 }
