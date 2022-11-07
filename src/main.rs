@@ -1,7 +1,7 @@
 #![allow(unused)]
 
 use std::collections::VecDeque;
-use clap::Parser;
+use clap::{arg, Parser};
 use exif::{DateTime, *};
 use std::error::Error;
 use std::fs;
@@ -101,74 +101,69 @@ fn main() {
 
     println!("Found {:?} files with valid date time in exif", files.len());
 
-    let destination = args.destination_dir.to_str().unwrap();
-    let mut total = 0u64;
-    let mut copy = 0u32;
     while !files.is_empty() {
-        let target = files.pop_front();
-        match target {
-            Some(image) => {
-                match image.source.file_name() {
-                    Some(name) => {
-                        let mut path = PathBuf::new();
-                        path.push(destination);
-                        path.push(image.date_time.year.to_string());
-                        path.push(image.date_time.month.to_string());
-                        path.push(image.date_time.day.to_string());
-                        if !args.dry_run {
-                            let result = fs::create_dir_all(&path);
-                            match result {
-                                Ok(value) => {}
-                                Err(e) => {
-                                    eprintln!("Could not create {:?}", path);
-                                    continue;
-                                }
-                            }
-                        } else {
-                            println!("Would create {:?}", path);
-                        }
-
-                        path.push(name);
-
-                        if !args.dry_run {
-                            if !args.r#move {
-                                let result = fs::copy(image.source, &path);
-                                match result {
-                                    Ok(value) => {
-                                        if args.verbose {
-                                            println!("Copied {:?} bytes to {:?}", value, path);
-                                        }
-                                        total += value;
-                                        copy += 1;
-                                    }
-                                    Err(e) => {}
-                                }
-                            } else {
-                                let result = fs::rename(image.source, &path);
-                                match result {
-                                    Ok(value) => {
-                                        let size = fs::metadata(&path).unwrap().len();
-                                        total += size;
-                                        if args.verbose {
-                                            println!("Moved {:?} bytes to {:?}", size, path);
-                                        }
-                                        copy += 1;
-                                    }
-                                    Err(e) => {}
-                                }
-                            }
-                        } else {
-                            println!("Would copy from {:?} to {:?}", image.source, path);
-                        }
-                    }
-                    None => { eprintln!("File without name") }
-                }
+        if args.r#move {
+            let r = move_file(&args, &mut files);
+            if r.is_err() {
+                eprintln!("Failed {:?}", r.err());
             }
-            _ => eprintln!("woot?")
+        } else {
+            let r = copy_file(&args, &mut files);
+            if r.is_err() {
+                eprintln!("Failed {:?}", r.err());
+            }
         }
     }
+}
 
-    println!("Copied or moved {} files with {} bytes", copy, total);
+fn copy_file(args: &Cli, files: &mut VecDeque<CopyImage>) -> Result<(), ReadError> {
+    let (mut path, image) = build_and_create_path(args, files)?;
+
+
+    if args.dry_run {
+        println!("Would copy from {:?} to {:?}", image.source, path);
+    } else {
+        let size = fs::copy(image.source, &path).map_err(|err| ReadError { msg: err.to_string() })?;
+        if args.verbose {
+            println!("Copied {:?} bytes to {:?}", size, path);
+        }
+    }
+    Ok(())
+}
+
+fn move_file(args: &Cli, files: &mut VecDeque<CopyImage>) -> Result<(), ReadError> {
+    let (mut path, image) = build_and_create_path(args, files)?;
+
+    if args.dry_run {
+        println!("Would copy from {:?} to {:?}", image.source, path);
+    } else {
+        // TODO: if move fails, call copy and delete
+        let result = fs::rename(image.source, &path).map_err(|err| ReadError { msg: err.to_string() })?;
+        let size = fs::metadata(&path).unwrap().len();
+        if args.verbose {
+            println!("Moved {:?} bytes to {:?}", size, path);
+        }
+    }
+    Ok(())
+}
+
+fn build_and_create_path(args: &Cli, files: &mut VecDeque<CopyImage>) -> Result<(PathBuf, CopyImage), ReadError> {
+    let destination = args.destination_dir.to_str().ok_or(ReadError { msg: "destination dir has no string".to_string() })?;
+    let image = files.pop_front().ok_or(ReadError { msg: "No more elements in queue".to_string() })?;
+    let name = image.source.file_name().ok_or(ReadError { msg: "File has no filename".to_string() })?;
+
+    let mut path = PathBuf::new();
+    path.push(destination);
+    path.push(image.date_time.year.to_string());
+    path.push(image.date_time.month.to_string());
+    path.push(image.date_time.day.to_string());
+    if args.dry_run {
+        println!("Would create {:?}", path);
+    } else {
+        let result = fs::create_dir_all(&path).map_err(|err| ReadError { msg: err.to_string() })?;
+    }
+    path.push(name);
+    Ok((path, image))
 }
 
 
