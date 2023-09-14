@@ -201,9 +201,9 @@ fn find_files(result: &mut VecDeque<CopyImage>, unprocessed_directories: &mut Ve
 
 fn read_exif(path: PathBuf, p1: &Cli) -> Result<CopyImage, ReadError> {
     // open file or fail
-    let file = std::fs::File::open(&path).map_err(|err| ReadError { msg: err.to_string() })?;
+    let file = File::open(&path).map_err(|err| ReadError { msg: err.to_string() })?;
     let mut buf_reader = std::io::BufReader::new(&file);
-    let exif_reader = exif::Reader::new();
+    let exif_reader = Reader::new();
     // read exif or fail
     let exif = exif_reader.read_from_container(&mut buf_reader).map_err(|err| ReadError { msg: err.to_string() })?;
     // get date time field or fail
