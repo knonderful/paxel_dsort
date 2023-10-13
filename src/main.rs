@@ -103,48 +103,74 @@ fn main() {
 
     while !files.is_empty() {
         if args.r#move {
-            let r = move_file(&args, &mut files);
-            if r.is_err() {
-                eprintln!("Failed {:?}", r.err());
+            match move_file(&args, &mut files) {
+                Ok(true) => {
+                    // count moves
+                }
+                Err(e) => {
+                    eprintln!("Failed {:?}", e);
+                    copy_and_count(&args, &mut files);
+                }
+                def => {
+                    // count same file
+                }
             }
         } else {
-            let r = copy_file(&args, &mut files);
-            if r.is_err() {
-                eprintln!("Failed {:?}", r.err());
+            copy_and_count(&args, &mut files);
+        }
+    }
+}
+
+fn copy_and_count(args: &Cli, mut files: &mut VecDeque<CopyImage>) {
+    match copy_file(&args, &mut files) {
+        Ok(true) => {
+            // count copies
+        }
+        Err(e) => {
+            eprintln!("Failed copy {:?}", e);
+        }
+        def => {
+            // count same file
+        }
+    }
+}
+
+fn copy_file(args: &Cli, files: &mut VecDeque<CopyImage>) -> Result<bool, ReadError> {
+    let (mut path, image) = build_and_create_path(args, files)?;
+
+
+    if !image.source.eq(&path) {
+        return if args.dry_run {
+            println!("Would copy from {:?} to {:?}", image.source, path);
+            Ok(false)
+        } else {
+            let size = fs::copy(image.source, &path).map_err(|err| ReadError { msg: err.to_string() })?;
+            if args.verbose {
+                println!("Copied {:?} bytes to {:?}", size, path);
             }
-        }
+            Ok(true)
+        };
     }
+    Ok(false)
 }
 
-fn copy_file(args: &Cli, files: &mut VecDeque<CopyImage>) -> Result<(), ReadError> {
+fn move_file(args: &Cli, files: &mut VecDeque<CopyImage>) -> Result<bool, ReadError> {
     let (mut path, image) = build_and_create_path(args, files)?;
 
-
-    if args.dry_run {
-        println!("Would copy from {:?} to {:?}", image.source, path);
-    } else {
-        let size = fs::copy(image.source, &path).map_err(|err| ReadError { msg: err.to_string() })?;
-        if args.verbose {
-            println!("Copied {:?} bytes to {:?}", size, path);
-        }
+    if !image.source.eq(&path) {
+        return if args.dry_run {
+            println!("Would move from {:?} to {:?}", image.source, path);
+            Ok(false)
+        } else {
+            let result = fs::rename(image.source, &path).map_err(|err| ReadError { msg: err.to_string() })?;
+            let size = fs::metadata(&path).unwrap().len();
+            if args.verbose {
+                println!("Moved {:?} bytes to {:?}", size, path);
+            }
+            Ok(true)
+        };
     }
-    Ok(())
-}
-
-fn move_file(args: &Cli, files: &mut VecDeque<CopyImage>) -> Result<(), ReadError> {
-    let (mut path, image) = build_and_create_path(args, files)?;
-
-    if args.dry_run {
-        println!("Would copy from {:?} to {:?}", image.source, path);
-    } else {
-        // TODO: if move fails, call copy and delete
-        let result = fs::rename(image.source, &path).map_err(|err| ReadError { msg: err.to_string() })?;
-        let size = fs::metadata(&path).unwrap().len();
-        if args.verbose {
-            println!("Moved {:?} bytes to {:?}", size, path);
-        }
-    }
-    Ok(())
+    Ok(false)
 }
 
 fn build_and_create_path(args: &Cli, files: &mut VecDeque<CopyImage>) -> Result<(PathBuf, CopyImage), ReadError> {
@@ -154,12 +180,10 @@ fn build_and_create_path(args: &Cli, files: &mut VecDeque<CopyImage>) -> Result<
 
     let mut path = PathBuf::new();
     path.push(destination);
-    path.push(image.date_time.year.to_string());
-    path.push(image.date_time.month.to_string());
-    path.push(image.date_time.day.to_string());
-    if args.dry_run {
-        println!("Would create {:?}", path);
-    } else {
+    path.push(format!("{:04}", image.date_time.year));
+    path.push(format!("{:02}", image.date_time.month));
+    path.push(format!("{:02}", image.date_time.day));
+    if !(args.dry_run) {
         let result = fs::create_dir_all(&path).map_err(|err| ReadError { msg: err.to_string() })?;
     }
     path.push(name);
@@ -207,10 +231,10 @@ fn read_exif(path: PathBuf, p1: &Cli) -> Result<CopyImage, ReadError> {
     // read exif or fail
     let exif = exif_reader.read_from_container(&mut buf_reader).map_err(|err| ReadError { msg: err.to_string() })?;
     // get date time field or fail
-    let date_time = exif.get_field(Tag::DateTime, In::PRIMARY).ok_or(ReadError { msg: "Missing DateTime in Primary".to_string() })?;
+     let create_date_time = exif.get_field(Tag::DateTimeOriginal, In::PRIMARY).ok_or(ReadError { msg: "Missing DateTime in Primary".to_string() })?;
 
     // check if the value is ascii
-    if let Value::Ascii(ref a) = date_time.value {
+    if let Value::Ascii(ref a) = create_date_time.value {
         // parse ascii as DateTime or fail
         let dt = DateTime::from_ascii(&a[0]).map_err(|err| ReadError { msg: err.to_string() })?;
         // check if the values are in the range (roughly)
