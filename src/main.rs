@@ -8,6 +8,9 @@ use std::fs;
 use std::fs::File;
 use std::path::PathBuf;
 use std::process;
+use termion;
+use termion::cursor::DetectCursorPos;
+use termion::raw::IntoRawMode;
 
 #[derive(Debug)]
 pub struct CopyImage {
@@ -40,34 +43,18 @@ struct Cli {
     #[clap(short, long, value_parser, default_value_t = false)]
     recursive: bool,
 
-    /// Optional filter for matching pics. e.g "*.jpg, *.gif, party*"
-    #[clap(short, long, value_parser, default_value = "")]
-    filter: String,
-
-    /// The sorting pattern. The pics end up in a directory defined by this pattern.
-    /// Supported variables are:
-    /// {year} the year the pic was taken (e.g. 1971).
-    /// {month} the month the pic was taken (e.g. 12).
-    /// {day} the day the pic was taken (e.g. 31).
-    /// {parent} the directory in which the pic was found (e.g. parties)
-    #[clap(short, long, value_parser, default_value = "{year}/{month}/{day}")]
-    pattern: String,
-
-    /// If set the date is taken from the files creation dir if no exif:create-date is found
-    #[clap(short, long, value_parser, default_value_t = false)]
-    use_file_creation_date: bool,
-
     /// If set verbose output is created
     #[clap(short, long, value_parser, default_value_t = false)]
     verbose: bool,
 
-    /// If set verbose output is created
-    #[clap(long, value_parser, default_value_t = false)]
-    print_exif_dates: bool,
-
     /// If set neither the directories are created, nor the pics copied or moved
     #[clap(short, long, value_parser, default_value_t = false)]
     dry_run: bool,
+
+    /// Log progress of scanning
+    #[clap(short, long, value_parser, default_value_t = false)]
+    progress: bool,
+
 }
 
 fn main() {
@@ -94,13 +81,29 @@ fn main() {
 
     // add source dir in the queue
     unprocessed_directories.push_back(args.source_dir.clone());
-    println!("Collecting files");
-    while !unprocessed_directories.is_empty() {
-        find_files(&mut files, &mut unprocessed_directories, &args);
+
+    if args.progress {
+        // create empty lines for output
+        println!();
+        println!();
+        println!();
+        println!();
+
+        let mut stdout = std::io::stdout().into_raw_mode().unwrap();
+        let result = stdout.cursor_pos();
+        let line = result.unwrap().1;
+        while !unprocessed_directories.is_empty() {
+            print!("{}{}Remaining directories: {}", termion::cursor::Goto(1, line - 3), termion::clear::CurrentLine, unprocessed_directories.len() - 1);
+            print!("{}{}      Collected files: {}", termion::cursor::Goto(1, line - 2), termion::clear::CurrentLine, files.len());
+            find_files(&mut files, &mut unprocessed_directories, &args, line);
+        }
+        let result1 = stdout.suspend_raw_mode();
+    } else {
+        while !unprocessed_directories.is_empty() {
+            find_files(&mut files, &mut unprocessed_directories, &args, 0);
+        }
     }
-
-    println!("Found {:?} files with valid date time in exif", files.len());
-
+    println!();
     while !files.is_empty() {
         if args.r#move {
             match move_file(&args, &mut files) {
@@ -191,13 +194,15 @@ fn build_and_create_path(args: &Cli, files: &mut VecDeque<CopyImage>) -> Result<
 }
 
 
-fn find_files(result: &mut VecDeque<CopyImage>, unprocessed_directories: &mut VecDeque<PathBuf>, args: &Cli) -> Result<(), ReadError> {
+fn find_files(result: &mut VecDeque<CopyImage>, unprocessed_directories: &mut VecDeque<PathBuf>, args: &Cli, line: u16) -> Result<(), ReadError> {
     // pop next from queue. queue is not empty so it should have an entry
     let dir = unprocessed_directories.pop_front().ok_or(ReadError { msg: "No more entries".to_string() })?;
     if args.verbose {
         println!("Processing dir {:?}", dir);
     }
-
+    if args.progress {
+        print!("{}{}       processing dir: {}", termion::cursor::Goto(1, line - 1), termion::clear::CurrentLine, dir.display());
+    }
     // read the files of the dir
     let read_dir_result = fs::read_dir(&dir).map_err(|err| ReadError { msg: err.to_string() })?;
 
@@ -210,9 +215,19 @@ fn find_files(result: &mut VecDeque<CopyImage>, unprocessed_directories: &mut Ve
                 }
                 continue;
             }
-            // we have a file, so try to read exif.
-            if let Ok(image) = read_exif(entry.path(), &args) {
-                result.push_back(image);
+            if let Some(ext) = entry.path().extension() {
+                if ext.to_ascii_lowercase().eq("jpg")
+                    || ext.to_ascii_lowercase().eq("jpeg")
+                    || ext.to_ascii_lowercase().eq("heic") {
+                    // we have a jpegish file, so try to read exif.
+
+                    if args.progress {
+                        print!("{}{}      processing file: {}", termion::cursor::Goto(1, line), termion::clear::CurrentLine, entry.path().display());
+                    }
+                    if let Ok(image) = read_exif(entry.path(), &args) {
+                        result.push_back(image);
+                    }
+                }
             }
         } else {
             if args.verbose {
@@ -231,7 +246,7 @@ fn read_exif(path: PathBuf, p1: &Cli) -> Result<CopyImage, ReadError> {
     // read exif or fail
     let exif = exif_reader.read_from_container(&mut buf_reader).map_err(|err| ReadError { msg: err.to_string() })?;
     // get date time field or fail
-     let create_date_time = exif.get_field(Tag::DateTimeOriginal, In::PRIMARY).ok_or(ReadError { msg: "Missing DateTime in Primary".to_string() })?;
+    let create_date_time = exif.get_field(Tag::DateTimeOriginal, In::PRIMARY).ok_or(ReadError { msg: "Missing DateTime in Primary".to_string() })?;
 
     // check if the value is ascii
     if let Value::Ascii(ref a) = create_date_time.value {
