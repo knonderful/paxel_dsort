@@ -12,6 +12,8 @@ use termion;
 use termion::cursor::DetectCursorPos;
 use termion::raw::IntoRawMode;
 
+use ctrlc;
+
 #[derive(Debug)]
 pub struct CopyImage {
     pub source: PathBuf,
@@ -58,6 +60,12 @@ struct Cli {
 }
 
 fn main() {
+
+    // doesn't work :(
+    ctrlc::set_handler(move || {
+        println!("received Ctrl+C!");
+    }).expect("Error setting Ctrl-C handler");
+
     let args: Cli = Cli::parse();
     if args.verbose {
         println!("Running with {:?}", args);
@@ -96,11 +104,13 @@ fn main() {
             print!("{}{}Remaining directories: {}", termion::cursor::Goto(1, line - 3), termion::clear::CurrentLine, unprocessed_directories.len() - 1);
             print!("{}{}      Collected files: {}", termion::cursor::Goto(1, line - 2), termion::clear::CurrentLine, files.len());
             find_files(&mut files, &mut unprocessed_directories, &args, line);
+            std::thread::yield_now();
         }
         let result1 = stdout.suspend_raw_mode();
     } else {
         while !unprocessed_directories.is_empty() {
             find_files(&mut files, &mut unprocessed_directories, &args, 0);
+            std::thread::yield_now();
         }
     }
     println!();
@@ -246,23 +256,59 @@ fn read_exif(path: PathBuf, p1: &Cli) -> Result<CopyImage, ReadError> {
     // read exif or fail
     let exif = exif_reader.read_from_container(&mut buf_reader).map_err(|err| ReadError { msg: err.to_string() })?;
     // get date time field or fail
-    let create_date_time = exif.get_field(Tag::DateTimeOriginal, In::PRIMARY).ok_or(ReadError { msg: "Missing DateTime in Primary".to_string() })?;
+    let tag = Tag::DateTimeOriginal;
+    let previous = read_and_choose_oldest(&exif, Tag::DateTimeOriginal, None);
+    let previous = read_and_choose_oldest(&exif, Tag::DateTimeDigitized, previous);
+    let previous = read_and_choose_oldest(&exif, Tag::DateTime, previous);
+    let selected = read_and_choose_oldest(&exif, Tag::GPSDateStamp, previous)
+        .ok_or(ReadError { msg: "No Date Time in file".to_string() })?;
 
-    // check if the value is ascii
-    if let Value::Ascii(ref a) = create_date_time.value {
-        // parse ascii as DateTime or fail
-        let dt = DateTime::from_ascii(&a[0]).map_err(|err| ReadError { msg: err.to_string() })?;
-        // check if the values are in the range (roughly)
-        if dt.year > 0 && dt.day > 0 && dt.month > 0 && dt.day < 32 && dt.month < 13 {
-            Ok(CopyImage { source: path, date_time: dt })
-        } else {
-            Err(ReadError { msg: "Date Time Values are invalid".to_string() })
-        }
-    } else {
-        Err(ReadError { msg: "Date Time Field is not ascii".to_string() })
-    }
+    Ok(CopyImage { source: path, date_time: selected })
 }
 
+fn read_and_choose_oldest(exif: &Exif, tag: Tag, previous: Option<DateTime>) -> Option<DateTime> {
+    // parse the given tag from the exif
+    if let Some(field) = exif.get_field(tag, In::PRIMARY) {
+        if let Value::Ascii(ref a) = field.value {
+            // parse ascii as DateTime or fail
+            if let Ok(new_date) = DateTime::from_ascii(&a[0]) {
+                // check if we have a previous value
+                if !(previous.is_none()) {
+                    // decide which one is the older one
+                    let old_date = previous.unwrap();
+                    if new_date.year > old_date.year {
+                        return Some(old_date);
+                    } else if new_date.year < old_date.year {
+                        return validate_or(Some(new_date), Some(old_date));
+                    }
+                    // same year
+                    if new_date.month > old_date.month {
+                        return Some(old_date);
+                    } else if new_date.month < old_date.month {
+                        return validate_or(Some(new_date), Some(old_date));
+                    }
+                    // same month
+                    if new_date.day > old_date.day {
+                        return Some(old_date);
+                    } else if new_date.day < old_date.day {
+                        return validate_or(Some(new_date), Some(old_date));
+                    }
+                }
+                return Some(new_date);
+            }
+        }
+    }
+    return previous;
+}
+
+fn validate_or(new_date: Option<DateTime>, old_date: Option<DateTime>) -> Option<DateTime> {
+    if let Some(dt) = &new_date {
+        if dt.year > 0 && dt.day > 0 && dt.month > 0 && dt.day < 32 && dt.month < 13 {
+            return new_date;
+        }
+    }
+    return old_date;
+}
 
 fn create_target_dir(args: &Cli) -> Result<(), ReadError> {
     if !args.destination_dir.exists() & &!args.dry_run {

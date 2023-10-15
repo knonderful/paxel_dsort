@@ -9,3 +9,4 @@ edition = "2021"
 clap = { version = "3.0.14", features = ["derive"] }
 kamadak-exif = "*"
 termion = "*"
+ctrlc = "*"
