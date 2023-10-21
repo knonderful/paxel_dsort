@@ -6,6 +6,7 @@ use exif::{DateTime, *};
 use std::error::Error;
 use std::fs;
 use std::fs::File;
+use std::io::Write;
 use std::path::PathBuf;
 use std::process;
 use termion;
@@ -105,8 +106,9 @@ fn main() {
             print!("{}{}      Collected files: {}", termion::cursor::Goto(1, line - 2), termion::clear::CurrentLine, files.len());
             find_files(&mut files, &mut unprocessed_directories, &args, line);
             std::thread::yield_now();
+            stdout.flush();
         }
-        let result1 = stdout.suspend_raw_mode();
+        stdout.suspend_raw_mode();
     } else {
         while !unprocessed_directories.is_empty() {
             find_files(&mut files, &mut unprocessed_directories, &args, 0);
@@ -256,49 +258,54 @@ fn read_exif(path: PathBuf, p1: &Cli) -> Result<CopyImage, ReadError> {
     // read exif or fail
     let exif = exif_reader.read_from_container(&mut buf_reader).map_err(|err| ReadError { msg: err.to_string() })?;
     // get date time field or fail
-    let tag = Tag::DateTimeOriginal;
-    let previous = read_and_choose_oldest(&exif, Tag::DateTimeOriginal, None);
-    let previous = read_and_choose_oldest(&exif, Tag::DateTimeDigitized, previous);
-    let previous = read_and_choose_oldest(&exif, Tag::DateTime, previous);
-    let selected = read_and_choose_oldest(&exif, Tag::GPSDateStamp, previous)
-        .ok_or(ReadError { msg: "No Date Time in file".to_string() })?;
+    let orig = read_and_validate(&exif, Tag::DateTimeOriginal);
+    let digi = read_and_validate(&exif, Tag::DateTimeDigitized);
+    let create = read_and_validate(&exif, Tag::DateTime);
+    let gps = read_and_validate(&exif, Tag::GPSDateStamp);
 
-    Ok(CopyImage { source: path, date_time: selected })
+    let selected = [orig, digi, create, gps]
+        .into_iter()
+        .filter_map(|x| x)
+        .reduce(|l, r| if older_than(&l, &r) { l } else { r });
+
+    selected.map_or(Err(ReadError { msg: "No Date Time in file".to_string() }),
+                    |dt| Ok(CopyImage { source: path, date_time: dt }))
 }
 
-fn read_and_choose_oldest(exif: &Exif, tag: Tag, previous: Option<DateTime>) -> Option<DateTime> {
+fn older_than(a: &DateTime, b: &DateTime) -> bool {
+    if a.year > b.year {
+        return true;
+    } else if a.year < b.year {
+        return false;
+    }
+    // same year
+    if a.month > b.month {
+        return true;
+    } else if a.month < b.month {
+        return false;
+    }
+    // same month
+    if a.day > b.day {
+        return true;
+    } else if a.day < b.day {
+        return false;
+    }
+    //equal
+    false
+}
+
+fn read_and_validate(exif: &Exif, tag: Tag) -> Option<DateTime> {
     // parse the given tag from the exif
     if let Some(field) = exif.get_field(tag, In::PRIMARY) {
         if let Value::Ascii(ref a) = field.value {
             // parse ascii as DateTime or fail
             if let Ok(new_date) = DateTime::from_ascii(&a[0]) {
                 // check if we have a previous value
-                if !(previous.is_none()) {
-                    // decide which one is the older one
-                    let old_date = previous.unwrap();
-                    if new_date.year > old_date.year {
-                        return Some(old_date);
-                    } else if new_date.year < old_date.year {
-                        return validate_or(Some(new_date), Some(old_date));
-                    }
-                    // same year
-                    if new_date.month > old_date.month {
-                        return Some(old_date);
-                    } else if new_date.month < old_date.month {
-                        return validate_or(Some(new_date), Some(old_date));
-                    }
-                    // same month
-                    if new_date.day > old_date.day {
-                        return Some(old_date);
-                    } else if new_date.day < old_date.day {
-                        return validate_or(Some(new_date), Some(old_date));
-                    }
-                }
-                return Some(new_date);
+                return validate_or(Some(new_date), None);
             }
         }
     }
-    return previous;
+    None
 }
 
 fn validate_or(new_date: Option<DateTime>, old_date: Option<DateTime>) -> Option<DateTime> {
