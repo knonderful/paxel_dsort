@@ -22,3 +22,11 @@ dicksort -r <source> <destination>
 ```
 will do it recursively
 
+# plans
+
+* add a `--clean` parameter for removing empty dirs after moving
+* add the ability to define the output path e.g. `--format "$year/$month/$day"`
+* add the ability to parse and use tags from the filename e.g. --format "$person/$year/$location" --parse "person=.*/([a-z]).*Jpg” ...
+
+
+
