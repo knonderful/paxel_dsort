@@ -1,17 +1,18 @@
 #![allow(unused)]
 
+use std::cmp::Ordering;
 use std::collections::VecDeque;
 use clap::{arg, Parser};
 use exif::{DateTime, *};
 use std::error::Error;
 use std::fs;
 use std::fs::File;
-use std::io::Write;
+use std::io::{Stdout, Write};
 use std::path::PathBuf;
 use std::process;
 use termion;
 use termion::cursor::DetectCursorPos;
-use termion::raw::IntoRawMode;
+use termion::raw::{IntoRawMode, RawTerminal};
 
 use ctrlc;
 
@@ -53,6 +54,10 @@ struct Cli {
     /// If set neither the directories are created, nor the pics copied or moved
     #[clap(short, long, value_parser, default_value_t = false)]
     dry_run: bool,
+
+    /// If move and clean are active, the empty directories the files were moved from are deleted
+    #[clap(short, long, value_parser, default_value_t = false)]
+    clean: bool,
 
     /// Log progress of scanning
     #[clap(short, long, value_parser, default_value_t = false)]
@@ -98,20 +103,19 @@ fn main() {
         println!();
         println!();
 
-        let mut stdout = std::io::stdout().into_raw_mode().unwrap();
-        let result = stdout.cursor_pos();
+        let mut termion_screen = std::io::stdout().into_raw_mode().unwrap();
+        let result = termion_screen.cursor_pos();
         let line = result.unwrap().1;
         while !unprocessed_directories.is_empty() {
-            print!("{}{}Remaining directories: {}", termion::cursor::Goto(1, line - 3), termion::clear::CurrentLine, unprocessed_directories.len() - 1);
-            print!("{}{}      Collected files: {}", termion::cursor::Goto(1, line - 2), termion::clear::CurrentLine, files.len());
-            find_files(&mut files, &mut unprocessed_directories, &args, line);
-            std::thread::yield_now();
-            stdout.flush();
+            write!(termion_screen, "{}{}Remaining directories: {}", termion::cursor::Goto(1, line - 3), termion::clear::CurrentLine, unprocessed_directories.len() - 1);
+            write!(termion_screen, "{}{}      Collected files: {}", termion::cursor::Goto(1, line - 2), termion::clear::CurrentLine, files.len());
+            find_files(&mut files, &mut unprocessed_directories, &args, line, Some(&termion_screen));
+            termion_screen.flush();
         }
-        stdout.suspend_raw_mode();
+        termion_screen.suspend_raw_mode();
     } else {
         while !unprocessed_directories.is_empty() {
-            find_files(&mut files, &mut unprocessed_directories, &args, 0);
+            find_files(&mut files, &mut unprocessed_directories, &args, 0, None);
             std::thread::yield_now();
         }
     }
@@ -206,13 +210,12 @@ fn build_and_create_path(args: &Cli, files: &mut VecDeque<CopyImage>) -> Result<
 }
 
 
-fn find_files(result: &mut VecDeque<CopyImage>, unprocessed_directories: &mut VecDeque<PathBuf>, args: &Cli, line: u16) -> Result<(), ReadError> {
+fn find_files(result: &mut VecDeque<CopyImage>, unprocessed_directories: &mut VecDeque<PathBuf>, args: &Cli, line: u16, termion_screen: Option<&RawTerminal<Stdout>>) -> Result<(), ReadError> {
     // pop next from queue. queue is not empty so it should have an entry
     let dir = unprocessed_directories.pop_front().ok_or(ReadError { msg: "No more entries".to_string() })?;
     if args.verbose {
         println!("Processing dir {:?}", dir);
-    }
-    if args.progress {
+    } else if args.progress {
         print!("{}{}       processing dir: {}", termion::cursor::Goto(1, line - 1), termion::clear::CurrentLine, dir.display());
     }
     // read the files of the dir
@@ -266,13 +269,13 @@ fn read_exif(path: PathBuf, p1: &Cli) -> Result<CopyImage, ReadError> {
     let selected = [orig, digi, create, gps]
         .into_iter()
         .filter_map(|x| x)
-        .reduce(|l, r| if older_than(&l, &r) { l } else { r });
+        .reduce(|l, r| if younger_than(&l, &r) { r } else { l });
 
     selected.map_or(Err(ReadError { msg: "No Date Time in file".to_string() }),
                     |dt| Ok(CopyImage { source: path, date_time: dt }))
 }
 
-fn older_than(a: &DateTime, b: &DateTime) -> bool {
+fn younger_than(a: &DateTime, b: &DateTime) -> bool {
     if a.year > b.year {
         return true;
     } else if a.year < b.year {
