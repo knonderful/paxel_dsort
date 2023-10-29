@@ -2,11 +2,11 @@ use std::collections::VecDeque;
 use exif::{DateTime, *};
 use std::fs;
 use std::fs::File;
-use std::io::{Stdout, Write};
+use std::io::{Write};
 use std::path::PathBuf;
 use termion;
 use termion::cursor::DetectCursorPos;
-use termion::raw::{IntoRawMode, RawTerminal};
+use termion::raw::{IntoRawMode};
 use crate::Cli;
 
 
@@ -44,13 +44,13 @@ pub fn sort(args: Cli) {
                 .expect("could not write to terminal");
             write!(termion_screen, "{}{}      Collected files: {}", termion::cursor::Goto(1, line - 2), termion::clear::CurrentLine, files.len())
                 .expect("could not write to terminal");
-            find_files(&mut files, &mut unprocessed_directories, &args, line);
-            termion_screen.flush();
+            find_files(&mut files, &mut unprocessed_directories, &args, line).expect("We should be able to read and write files");
+            termion_screen.flush().expect("We should be able to flush output ");
         }
-        termion_screen.suspend_raw_mode();
+        termion_screen.suspend_raw_mode().expect("We should be able to switch back from raw mode");
     } else {
         while !unprocessed_directories.is_empty() {
-            find_files(&mut files, &mut unprocessed_directories, &args, 0);
+            find_files(&mut files, &mut unprocessed_directories, &args, 0).expect("We should be able to read and write files");
             std::thread::yield_now();
         }
     }
