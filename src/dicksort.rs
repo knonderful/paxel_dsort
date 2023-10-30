@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+use std::cmp::Ordering::{Equal, Greater, Less};
 use std::collections::VecDeque;
 use exif::{DateTime, *};
 use std::fs;
@@ -13,7 +15,7 @@ use crate::Cli;
 #[derive(Debug)]
 pub struct CopyImage {
     pub source: PathBuf,
-    pub date_time: DateTime,
+    pub date_time: SortedDayTime,
 }
 
 
@@ -36,18 +38,18 @@ pub fn sort(args: Cli) {
         println!();
         println!();
 
-        let mut termion_screen = std::io::stdout().into_raw_mode().unwrap();
-        let result = termion_screen.cursor_pos();
+        let mut progress_screen = std::io::stdout().into_raw_mode().unwrap();
+        let result = progress_screen.cursor_pos();
         let line = result.unwrap().1;
         while !unprocessed_directories.is_empty() {
-            write!(termion_screen, "{}{}Remaining directories: {}", termion::cursor::Goto(1, line - 3), termion::clear::CurrentLine, unprocessed_directories.len() - 1)
+            write!(progress_screen, "{}{}Remaining directories: {}", termion::cursor::Goto(1, line - 3), termion::clear::CurrentLine, unprocessed_directories.len() - 1)
                 .expect("could not write to terminal");
-            write!(termion_screen, "{}{}      Collected files: {}", termion::cursor::Goto(1, line - 2), termion::clear::CurrentLine, files.len())
+            write!(progress_screen, "{}{}      Collected files: {}", termion::cursor::Goto(1, line - 2), termion::clear::CurrentLine, files.len())
                 .expect("could not write to terminal");
             find_files(&mut files, &mut unprocessed_directories, &args, line).expect("We should be able to read and write files");
-            termion_screen.flush().expect("We should be able to flush output ");
+            progress_screen.flush().expect("We should be able to flush output ");
         }
-        termion_screen.suspend_raw_mode().expect("We should be able to switch back from raw mode");
+        progress_screen.suspend_raw_mode().expect("We should be able to switch back from raw mode");
     } else {
         while !unprocessed_directories.is_empty() {
             find_files(&mut files, &mut unprocessed_directories, &args, 0).expect("We should be able to read and write files");
@@ -134,9 +136,9 @@ fn build_and_create_path(args: &Cli, files: &mut VecDeque<CopyImage>) -> Result<
 
     let mut path = PathBuf::new();
     path.push(destination);
-    path.push(format!("{:04}", image.date_time.year));
-    path.push(format!("{:02}", image.date_time.month));
-    path.push(format!("{:02}", image.date_time.day));
+    path.push(format!("{:04}", image.date_time.date_time.year));
+    path.push(format!("{:02}", image.date_time.date_time.month));
+    path.push(format!("{:02}", image.date_time.date_time.day));
     if !(args.dry_run) {
         fs::create_dir_all(&path).map_err(|err| ReadError { msg: err.to_string() })?;
     }
@@ -204,55 +206,134 @@ fn read_exif(path: PathBuf) -> Result<CopyImage, ReadError> {
     let selected = [orig, digi, create, gps]
         .into_iter()
         .filter_map(|x| x)
-        .reduce(|l, r| if younger_than(&l, &r) { r } else { l });
+        .reduce(|l, r| if l > r { r } else { l });
 
     selected.map_or(Err(ReadError { msg: "No Date Time in file".to_string() }),
-                    |dt| Ok(CopyImage { source: path, date_time: dt }))
+                    |sdt| Ok(CopyImage { source: path, date_time: sdt }))
 }
 
-fn younger_than(a: &DateTime, b: &DateTime) -> bool {
-    if a.year > b.year {
-        return true;
-    } else if a.year < b.year {
-        return false;
-    }
-    // same year
-    if a.month > b.month {
-        return true;
-    } else if a.month < b.month {
-        return false;
-    }
-    // same month
-    if a.day > b.day {
-        return true;
-    } else if a.day < b.day {
-        return false;
-    }
-    //equal
-    false
-}
 
-fn read_and_validate(exif: &Exif, tag: Tag) -> Option<DateTime> {
+fn read_and_validate(exif: &Exif, tag: Tag) -> Option<SortedDayTime> {
     // parse the given tag from the exif
     if let Some(field) = exif.get_field(tag, In::PRIMARY) {
         if let Value::Ascii(ref a) = field.value {
             // parse ascii as DateTime or fail
             if let Ok(new_date) = DateTime::from_ascii(&a[0]) {
                 // check if we have a previous value
-                return validate_or(Some(new_date), None);
+                return validate_or(Some(SortedDayTime::new(new_date)), None);
             }
         }
     }
     None
 }
 
-fn validate_or(new_date: Option<DateTime>, old_date: Option<DateTime>) -> Option<DateTime> {
+fn validate_or(new_date: Option<SortedDayTime>, old_date: Option<SortedDayTime>) -> Option<SortedDayTime> {
     if let Some(dt) = &new_date {
-        if dt.year > 0 && dt.day > 0 && dt.month > 0 && dt.day < 32 && dt.month < 13 {
+        if dt.date_time.year > 0 && dt.date_time.day > 0 && dt.date_time.month > 0 && dt.date_time.day < 32 && dt.date_time.month < 13 {
             return new_date;
         }
     }
     return old_date;
 }
 
+#[derive(Debug)]
+pub struct SortedDayTime {
+    pub date_time: DateTime,
+}
 
+impl SortedDayTime {
+    pub fn new(dt: DateTime) -> Self {
+        SortedDayTime { date_time: dt }
+    }
+}
+
+impl PartialEq<SortedDayTime> for SortedDayTime {
+    fn eq(&self, other: &SortedDayTime) -> bool {
+        if self.date_time.year != other.date_time.year {
+            return false;
+        }
+        if self.date_time.month != other.date_time.month {
+            return false;
+        }
+        // todo: offsets?
+
+        if self.date_time.day != other.date_time.day {
+            return false;
+        }
+        if self.date_time.hour != other.date_time.hour {
+            return false;
+        }
+        if self.date_time.minute != other.date_time.minute {
+            return false;
+        }
+        if self.date_time.second != other.date_time.second {
+            return false;
+        }
+        return true;
+    }
+}
+
+impl PartialOrd<SortedDayTime> for SortedDayTime {
+    fn partial_cmp(&self, other: &SortedDayTime) -> Option<Ordering> {
+        if self.date_time.year > other.date_time.year {
+            return Some(Greater);
+        } else if self.date_time.year < other.date_time.year {
+            return Some(Less);
+        }
+        if self.date_time.month > other.date_time.month {
+            return Some(Greater);
+        } else if self.date_time.month < other.date_time.month {
+            return Some(Less);
+        }
+        // todo: offsets?
+
+        if self.date_time.day > other.date_time.day {
+            return Some(Greater);
+        } else if self.date_time.day < other.date_time.day {
+            return Some(Less);
+        }
+        if self.date_time.hour > other.date_time.hour {
+            return Some(Greater);
+        } else if self.date_time.hour < other.date_time.hour {
+            return Some(Less);
+        }
+        if self.date_time.minute > other.date_time.minute {
+            return Some(Greater);
+        } else if self.date_time.minute < other.date_time.minute {
+            return Some(Less);
+        }
+        if self.date_time.second > other.date_time.second {
+            return Some(Greater);
+        } else if self.date_time.second < other.date_time.second
+        {
+            return Some(Less);
+        }
+        return Some(Equal);
+    }
+
+    fn lt(&self, other: &SortedDayTime) -> bool {
+        if let Some(order) = self.partial_cmp(other) {
+            if order == Less {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    fn le(&self, other: &SortedDayTime) -> bool {
+        if let Some(order) = self.partial_cmp(other) {
+            if order == Less || order == Equal {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    fn gt(&self, other: &SortedDayTime) -> bool {
+        return !self.le(other);
+    }
+
+    fn ge(&self, other: &SortedDayTime) -> bool {
+        return !self.lt(other);
+    }
+}

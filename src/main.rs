@@ -7,7 +7,6 @@ use std::path::PathBuf;
 use dicksort::ReadError;
 
 
-use ctrlc;
 
 /// Sorts pics from one directory into other ones
 #[derive(Parser, Debug)]
@@ -48,11 +47,6 @@ pub struct Cli {
 }
 
 fn main() {
-
-    // doesn't work :(
-    ctrlc::set_handler(move || {
-        println!("received Ctrl+C!");
-    }).expect("Error setting Ctrl-C handler");
 
     let args: Cli = Cli::parse();
     if args.verbose {
