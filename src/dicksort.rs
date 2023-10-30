@@ -337,3 +337,33 @@ impl PartialOrd<SortedDayTime> for SortedDayTime {
         return !self.lt(other);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use exif::DateTime;
+    use crate::dicksort::SortedDayTime;
+
+    #[test]
+    fn gt_ge_let_le() {
+        let younger = DateTime::from_ascii(b"2016:05:04 03:02:01").expect("should be ok");
+        let older = DateTime::from_ascii(b"2016:05:04 03:02:00").expect("should be ok");
+
+        let younger = SortedDayTime::new(younger);
+        let older = SortedDayTime::new(older);
+        assert!(younger > older);
+        assert!(younger >= older);
+        assert!(older < younger);
+        assert!(older <= younger);
+    }
+
+    #[test]
+    fn eq() {
+        let a = DateTime::from_ascii(b"2016:05:04 03:02:00").expect("should be ok");
+        let also_a = DateTime::from_ascii(b"2016:05:04 03:02:00").expect("should be ok");
+
+        let b = SortedDayTime::new(a);
+        let still_a = SortedDayTime::new(also_a);
+        assert_eq!(b, still_a);
+    }
+
+}
