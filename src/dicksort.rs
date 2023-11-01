@@ -145,15 +145,13 @@ fn clean_empty_to_root(args: &Cli, current: &PathBuf, root: &PathBuf) -> Result<
         return Err(ReadError { msg: "Given current path is not sub dir of given root".to_string() });
     }
 
-    let clean_up = remove_dir(current);
-    return match clean_up {
+    return match remove_dir(current) {
         Ok(_) => {
             if args.verbose {
                 println!("Deleted empty dir {}", current.display())
             }
             if recurse {
-                let next_parent = current.parent();
-                return match next_parent {
+                return match current.parent() {
                     Some(path) => {
                         clean_empty_to_root(args, &path.to_path_buf(), root)
                     }
@@ -170,7 +168,7 @@ fn clean_empty_to_root(args: &Cli, current: &PathBuf, root: &PathBuf) -> Result<
         Err(err) => {
             Err(ReadError { msg: err.to_string() })
         }
-    };
+    }
 }
 
 fn build_and_create_path(args: &Cli, files: &mut VecDeque<CopyImage>) -> Result<(PathBuf, CopyImage), ReadError> {
