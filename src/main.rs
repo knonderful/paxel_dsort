@@ -1,5 +1,6 @@
 
 mod dicksort;
+
 use clap::{ Parser};
 use std::process;
 use std::fs;
@@ -36,13 +37,15 @@ pub struct Cli {
     #[clap(short, long, value_parser, default_value_t = false)]
     dry_run: bool,
 
-    /// If move and clean are active, the empty directories the files were moved from are deleted
+    /// If move and clean are active, the empty directories the files were moved from (and all sub directories) are deleted
     #[clap(short, long, value_parser, default_value_t = false)]
     clean: bool,
 
     /// Log progress of scanning
     #[clap(short, long, value_parser, default_value_t = false)]
     progress: bool,
+
+
 
 }
 

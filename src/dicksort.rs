@@ -1,8 +1,9 @@
+use fs::remove_dir;
 use std::cmp::Ordering;
 use std::cmp::Ordering::{Equal, Greater, Less};
 use std::collections::VecDeque;
 use exif::{DateTime, *};
-use std::fs;
+use std::{fs, io};
 use std::fs::File;
 use std::io::{Write};
 use std::path::PathBuf;
@@ -118,15 +119,58 @@ fn move_file(args: &Cli, files: &mut VecDeque<CopyImage>) -> Result<bool, ReadEr
             println!("Would move from {:?} to {:?}", image.source, path);
             Ok(false)
         } else {
-            fs::rename(image.source, &path).map_err(|err| ReadError { msg: err.to_string() })?;
+            fs::rename(&image.source, &path).map_err(|err| ReadError { msg: err.to_string() })?;
             let size = fs::metadata(&path).unwrap().len();
             if args.verbose {
                 println!("Moved {:?} bytes to {:?}", size, path);
+            }
+            if args.clean {
+                // If we can't delete it's no reason to stop moving
+                let _ = clean_empty_to_root(args, &image.source.parent().expect("A file should have a parent").to_path_buf(), &args.source_dir);
             }
             Ok(true)
         };
     }
     Ok(false)
+}
+
+fn clean_empty_to_root(args: &Cli, current: &PathBuf, root: &PathBuf) -> Result<(), ReadError> {
+
+    // while we haven't reached the root dir, we process parents
+    let recurse = current != root;
+
+    // make sure that the root dir is actually root of the current
+
+    if !current.starts_with(root) {
+        return Err(ReadError { msg: "Given current path is not sub dir of given root".to_string() });
+    }
+
+    let clean_up = remove_dir(current);
+    return match clean_up {
+        Ok(_) => {
+            if args.verbose {
+                println!("Deleted empty dir {}", current.display())
+            }
+            if recurse {
+                let next_parent = current.parent();
+                return match next_parent {
+                    Some(path) => {
+                        clean_empty_to_root(args, &path.to_path_buf(), root)
+                    }
+                    _ => {
+                        Ok(())
+                    }
+                };
+            }
+            Ok(())
+        }
+        Err(ref err) if err.kind() == io::ErrorKind::NotFound => {
+            Ok(())
+        }
+        Err(err) => {
+            Err(ReadError { msg: err.to_string() })
+        }
+    };
 }
 
 fn build_and_create_path(args: &Cli, files: &mut VecDeque<CopyImage>) -> Result<(PathBuf, CopyImage), ReadError> {
@@ -150,10 +194,10 @@ fn build_and_create_path(args: &Cli, files: &mut VecDeque<CopyImage>) -> Result<
 fn find_files(result: &mut VecDeque<CopyImage>, unprocessed_directories: &mut VecDeque<PathBuf>, args: &Cli, line: u16) -> Result<(), ReadError> {
     // pop next from queue. queue is not empty so it should have an entry
     let dir = unprocessed_directories.pop_front().ok_or(ReadError { msg: "No more entries".to_string() })?;
-    if args.verbose {
-        println!("Processing dir {:?}", dir);
-    } else if args.progress {
+    if args.progress {
         print!("{}{}       processing dir: {}", termion::cursor::Goto(1, line - 1), termion::clear::CurrentLine, dir.display());
+    } else if args.verbose {
+        println!("Processing dir {:?}", dir);
     }
     // read the files of the dir
     let read_dir_result = fs::read_dir(&dir).map_err(|err| ReadError { msg: err.to_string() })?;
@@ -182,7 +226,7 @@ fn find_files(result: &mut VecDeque<CopyImage>, unprocessed_directories: &mut Ve
                 }
             }
         } else {
-            if args.verbose {
+            if args.verbose && !args.progress {
                 println!("Error entering path: {:?}: {}", dir, dir_entry_result.err().unwrap().to_string());
             }
         }
@@ -365,5 +409,4 @@ mod tests {
         let still_a = SortedDayTime::new(also_a);
         assert_eq!(b, still_a);
     }
-
 }
