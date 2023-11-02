@@ -16,7 +16,7 @@ will move them instead
 dicksort -m -c <source> <destination>
 ```
 will move them and also delete source dirs that are empty after the move;
-including the <destination> if all was moved.
+including the `<destination>` if all was moved.
 
 
 ```bash
