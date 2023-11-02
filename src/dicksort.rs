@@ -7,7 +7,6 @@ use std::{fs, io};
 use std::fs::File;
 use std::io::{Write};
 use std::path::PathBuf;
-use termion;
 use termion::cursor::DetectCursorPos;
 use termion::raw::{IntoRawMode};
 use crate::Cli;
@@ -78,8 +77,8 @@ pub fn sort(args: Cli) {
     }
 }
 
-fn copy_and_count(args: &Cli, mut files: &mut VecDeque<CopyImage>) {
-    match copy_file(&args, &mut files) {
+fn copy_and_count(args: &Cli, files: &mut VecDeque<CopyImage>) {
+    match copy_file(args, files) {
         Ok(true) => {
             // count copies
         }
@@ -168,7 +167,7 @@ fn clean_empty_to_root(args: &Cli, current: &PathBuf, root: &PathBuf) -> Result<
         Err(err) => {
             Err(ReadError { msg: err.to_string() })
         }
-    }
+    };
 }
 
 fn build_and_create_path(args: &Cli, files: &mut VecDeque<CopyImage>) -> Result<(PathBuf, CopyImage), ReadError> {
@@ -223,10 +222,8 @@ fn find_files(result: &mut VecDeque<CopyImage>, unprocessed_directories: &mut Ve
                     }
                 }
             }
-        } else {
-            if args.verbose && !args.progress {
-                println!("Error entering path: {:?}: {}", dir, dir_entry_result.err().unwrap().to_string());
-            }
+        } else if args.verbose && !args.progress {
+            println!("Error entering path: {:?}: {}", dir, dir_entry_result.err().unwrap());
         }
     }
     Ok(())
@@ -247,7 +244,7 @@ fn read_exif(path: PathBuf) -> Result<CopyImage, ReadError> {
 
     let selected = [orig, digi, create, gps]
         .into_iter()
-        .filter_map(|x| x)
+        .flatten()
         .reduce(|l, r| if l > r { r } else { l });
 
     selected.map_or(Err(ReadError { msg: "No Date Time in file".to_string() }),
@@ -275,7 +272,7 @@ fn validate_or(new_date: Option<SortedDayTime>, old_date: Option<SortedDayTime>)
             return new_date;
         }
     }
-    return old_date;
+    old_date
 }
 
 #[derive(Debug)]
@@ -311,7 +308,7 @@ impl PartialEq<SortedDayTime> for SortedDayTime {
         if self.date_time.second != other.date_time.second {
             return false;
         }
-        return true;
+        true
     }
 }
 
@@ -319,38 +316,44 @@ impl PartialOrd<SortedDayTime> for SortedDayTime {
     fn partial_cmp(&self, other: &SortedDayTime) -> Option<Ordering> {
         if self.date_time.year > other.date_time.year {
             return Some(Greater);
-        } else if self.date_time.year < other.date_time.year {
+        }
+        if self.date_time.year < other.date_time.year {
             return Some(Less);
         }
         if self.date_time.month > other.date_time.month {
             return Some(Greater);
-        } else if self.date_time.month < other.date_time.month {
+        }
+        if self.date_time.month < other.date_time.month {
             return Some(Less);
         }
         // todo: offsets?
 
         if self.date_time.day > other.date_time.day {
             return Some(Greater);
-        } else if self.date_time.day < other.date_time.day {
+        }
+        if self.date_time.day < other.date_time.day {
             return Some(Less);
         }
         if self.date_time.hour > other.date_time.hour {
             return Some(Greater);
-        } else if self.date_time.hour < other.date_time.hour {
+        }
+        if self.date_time.hour < other.date_time.hour {
             return Some(Less);
         }
         if self.date_time.minute > other.date_time.minute {
             return Some(Greater);
-        } else if self.date_time.minute < other.date_time.minute {
+        }
+        if self.date_time.minute < other.date_time.minute {
             return Some(Less);
         }
         if self.date_time.second > other.date_time.second {
             return Some(Greater);
-        } else if self.date_time.second < other.date_time.second
+        }
+        if self.date_time.second < other.date_time.second
         {
             return Some(Less);
         }
-        return Some(Equal);
+        Some(Equal)
     }
 
     fn lt(&self, other: &SortedDayTime) -> bool {
@@ -359,7 +362,7 @@ impl PartialOrd<SortedDayTime> for SortedDayTime {
                 return true;
             }
         }
-        return false;
+        false
     }
 
     fn le(&self, other: &SortedDayTime) -> bool {
@@ -368,15 +371,15 @@ impl PartialOrd<SortedDayTime> for SortedDayTime {
                 return true;
             }
         }
-        return false;
+        false
     }
 
     fn gt(&self, other: &SortedDayTime) -> bool {
-        return !self.le(other);
+        !self.le(other)
     }
 
     fn ge(&self, other: &SortedDayTime) -> bool {
-        return !self.lt(other);
+        !self.lt(other)
     }
 }
 

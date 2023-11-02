@@ -1,12 +1,10 @@
-
 mod dicksort;
 
-use clap::{ Parser};
+use clap::{Parser};
 use std::process;
 use std::fs;
 use std::path::PathBuf;
 use dicksort::ReadError;
-
 
 
 /// Sorts pics from one directory into other ones
@@ -45,12 +43,9 @@ pub struct Cli {
     #[clap(short, long, value_parser, default_value_t = false)]
     progress: bool,
 
-
-
 }
 
 fn main() {
-
     let args: Cli = Cli::parse();
     if args.verbose {
         println!("Running with {:?}", args);
@@ -72,7 +67,7 @@ fn main() {
 }
 
 fn create_target_dir(args: &Cli) -> Result<(), ReadError> {
-    if !args.destination_dir.exists() & &!args.dry_run {
+    if !args.dry_run && !args.destination_dir.exists() {
         if args.verbose {
             println!("Creating Destination dir {}", args.destination_dir.display());
         }
