@@ -1,11 +1,9 @@
-mod dicksort;
-
-use clap::{Parser};
-use std::process;
-use std::fs;
 use std::path::PathBuf;
-use dicksort::ReadError;
+use std::process;
 
+use clap::Parser;
+
+mod dick_sort;
 
 /// Sorts pics from one directory into other ones
 #[derive(Parser, Debug)]
@@ -58,31 +56,9 @@ fn main() {
         println!("source_dir must exist");
         process::exit(1);
     }
-    let created_dir = create_target_dir(&args);
-    if created_dir.is_err() {
-        eprintln!("Could not create destination dir {} {}", &args.destination_dir.display(), created_dir.err().unwrap().msg);
-        process::exit(1);
+    let result = dick_sort::sort(args);
+    if result.is_err() {
+        eprint!("Failed: {}", result.unwrap_err().msg);
     }
-    dicksort::sort(args);
 }
 
-fn create_target_dir(args: &Cli) -> Result<(), ReadError> {
-    if !args.dry_run && !args.destination_dir.exists() {
-        if args.verbose {
-            println!("Creating Destination dir {}", args.destination_dir.display());
-        }
-        let dir_created = fs::create_dir_all(&args.destination_dir);
-        return match dir_created {
-            Ok(n) => {
-                if args.verbose {
-                    println!("Created {} {:?}", args.destination_dir.display(), n)
-                }
-                Ok(())
-            }
-            Err(e) => {
-                Err(ReadError { msg: e.to_string() })
-            }
-        };
-    }
-    Ok(())
-}

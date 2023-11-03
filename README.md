@@ -3,29 +3,29 @@ Rust learning project. Sorts your fav pics into a directory structure
 
 out of the box usage:
 ```bash
-dicksort <source> <destination>
+dick_sort <source> <destination>
 ```
 will copy all images with an exif date into a dir yyyy/mm/dd/ in destination
 
 ```bash
-dicksort -m <source> <destination>
+dick_sort -m <source> <destination>
 ```
 will move them instead
 
 ```bash
-dicksort -m -c <source> <destination>
+dick_sort -m -c <source> <destination>
 ```
 will move them and also delete source dirs that are empty after the move;
 including the `<destination>` if all was moved.
 
 
 ```bash
-dicksort -d <source> <destination>
+dick_sort -d <source> <destination>
 ```
 will only describe which files it would copy / move
 
 ```bash
-dicksort -r <source> <destination>
+dick_sort -r <source> <destination>
 ```
 will do it recursively
 
