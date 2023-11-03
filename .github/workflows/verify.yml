@@ -1,0 +1,29 @@
+name: Clippy check, build and test
+
+on:
+  push:
+   branches:
+     - summer
+     - feature/**
+  pull_request:
+    branches: [ "summer" ]
+run-name: Check ${{ github.run_number }} on ${{ github.ref_name }} by @${{ github.actor }}
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-Dwarnings"
+
+jobs:
+  clippy_check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Run Clippy
+        run: cargo clippy --all-targets --all-features
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Build
+      run: cargo build --verbose
+    - name: Run tests
+      run: cargo test --verbose
