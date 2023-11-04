@@ -6,6 +6,9 @@ use std::path::PathBuf;
 use crate::Cli;
 use crate::dick_sort::{CopyImage, ReadError};
 
+
+use pathdiff::diff_paths;
+
 pub fn process(args: &Cli, mut files: VecDeque<CopyImage>) {
     while !files.is_empty() {
         if args.r#move {
@@ -48,12 +51,15 @@ fn copy_file(args: &Cli, files: &mut VecDeque<CopyImage>) -> Result<bool, ReadEr
 
     if !image.source.eq(&path) {
         return if args.dry_run {
-            println!("Would copy from {:?} to {:?}", image.source, path);
+            let relative_source = diff_paths(&image.source, &args.source_dir).unwrap();
+            let relative_destination = diff_paths(&path, &args.destination_dir).unwrap();
+            println!("Would copy from {:?} to {:?}", relative_source, relative_destination);
             Ok(false)
         } else {
             let size = fs::copy(image.source, &path).map_err(|err| ReadError { msg: err.to_string() })?;
             if args.verbose {
-                println!("Copied {:?} bytes to {:?}", size, path);
+                let relative_destination = diff_paths(&path, &args.destination_dir).unwrap();
+                println!("Copied {:?} bytes to {:?}", size, relative_destination);
             }
             Ok(true)
         };
@@ -66,13 +72,16 @@ fn move_file(args: &Cli, files: &mut VecDeque<CopyImage>) -> Result<bool, ReadEr
 
     if !image.source.eq(&path) {
         return if args.dry_run {
-            println!("Would move from {:?} to {:?}", image.source, path);
+            let relative_source = diff_paths(&image.source, &args.source_dir).unwrap();
+            let relative_destination = diff_paths(&path, &args.destination_dir).unwrap();
+            println!("Would move from {:?} to {:?}", relative_source, relative_destination);
             Ok(false)
         } else {
             fs::rename(&image.source, &path).map_err(|err| ReadError { msg: err.to_string() })?;
             let size = fs::metadata(&path).unwrap().len();
             if args.verbose {
-                println!("Moved {:?} bytes to {:?}", size, path);
+                let relative_destination = diff_paths(&path, &args.destination_dir).unwrap();
+                println!("Moved {:?} bytes to {:?}", size, relative_destination);
             }
             if args.clean {
                 // If we can't delete it's no reason to stop moving

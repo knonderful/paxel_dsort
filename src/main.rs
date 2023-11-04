@@ -17,19 +17,19 @@ pub struct Cli {
     #[clap(parse(from_os_str))]
     destination_dir: PathBuf,
 
-    /// If set the pics will be moved instead copied
+    /// If set, the pics will be moved instead copied
     #[clap(short, long, value_parser, default_value_t = false)]
     r#move: bool,
 
-    /// If set pics in subdirectories will be read, too
+    /// If set, pics in subdirectories will be read, too
     #[clap(short, long, value_parser, default_value_t = false)]
     recursive: bool,
 
-    /// If set verbose output is created
+    /// If set, verbose output is created
     #[clap(short, long, value_parser, default_value_t = false)]
     verbose: bool,
 
-    /// If set neither the directories are created, nor the pics copied or moved
+    /// If set, neither the directories are created, nor the pics copied or moved
     #[clap(short, long, value_parser, default_value_t = false)]
     dry_run: bool,
 
@@ -41,6 +41,9 @@ pub struct Cli {
     #[clap(short, long, value_parser, default_value_t = false)]
     progress: bool,
 
+    /// Format of the path under destination_dir
+    #[clap(short, long, value_parser, default_value_t = String::from("'${year}/${month}/${day}/${file}'"))]
+    format: String
 }
 
 fn main() {
