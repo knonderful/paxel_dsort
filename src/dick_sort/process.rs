@@ -1,5 +1,6 @@
 use std::{fs, io};
 use std::collections::VecDeque;
+use std::ffi::OsStr;
 use std::fs::remove_dir;
 use std::path::PathBuf;
 
@@ -135,14 +136,29 @@ fn build_and_create_path(args: &Cli, files: &mut VecDeque<CopyImage>) -> Result<
     let image = files.pop_front().ok_or(ReadError { msg: "No more elements in queue".to_string() })?;
     let name = image.source.file_name().ok_or(ReadError { msg: "File has no filename".to_string() })?;
 
-    let mut path = PathBuf::new();
-    path.push(destination);
-    path.push(format!("{:04}", image.date_time.date_time.year));
-    path.push(format!("{:02}", image.date_time.date_time.month));
-    path.push(format!("{:02}", image.date_time.date_time.day));
-    if !(args.dry_run) {
-        fs::create_dir_all(&path).map_err(|err| ReadError { msg: err.to_string() })?;
-    }
-    path.push(name);
+    let path = create_sub_path(args, destination, &image, name)?;
     Ok((path, image))
+}
+
+fn create_sub_path(args: &Cli, dest: &str, image: &CopyImage, file_name: &OsStr) -> Result<PathBuf, ReadError> {
+
+    // replace placeholders with exif value
+    let mut relative_path = args.format.replace("[YEAR]", format!("{:04}", image.date_time.date_time.year).as_str())
+        .replace("[MONTH]", format!("{:02}", image.date_time.date_time.month).as_str())
+        .replace("[DAY]", format!("{:02}", image.date_time.date_time.day).as_str());
+
+    // add file name
+    relative_path.push_str(file_name.to_str().unwrap());
+    // make absolute
+    let mut absolut = dest.to_string();
+    absolut.push_str(relative_path.as_str());
+
+    // create PathBuf
+    let absolute_path = PathBuf::from(absolut);
+    if !args.dry_run {
+        // create parent dirs
+        fs::create_dir_all(absolute_path.parent().expect("The file should have a parent dir")).map_err(|err| ReadError { msg: err.to_string() })?;
+    }
+
+    Ok(absolute_path)
 }

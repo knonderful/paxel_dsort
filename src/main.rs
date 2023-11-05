@@ -42,7 +42,7 @@ pub struct Cli {
     progress: bool,
 
     /// Format of the path under destination_dir
-    #[clap(short, long, value_parser, default_value_t = String::from("'${year}/${month}/${day}/${file}'"))]
+    #[clap(short, long, value_parser, default_value_t = String::from("[YEAR]/[MONTH]/[DAY]/"))]
     format: String
 }
 
