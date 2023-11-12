@@ -1,9 +1,12 @@
+use anyhow::bail;
 use std::path::PathBuf;
-use std::process;
 
+use crate::shell::Shell;
 use clap::Parser;
 
 mod dick_sort;
+mod progress;
+mod shell;
 
 /// Sorts pics from one directory into other ones
 #[derive(Parser, Debug)]
@@ -43,25 +46,26 @@ pub struct Cli {
 
     /// Format of the path under destination_dir
     #[clap(short, long, value_parser, default_value_t = String::from("[YEAR]/[MONTH]/[DAY]/"))]
-    format: String
+    format: String,
 }
 
-fn main() {
-    let args: Cli = Cli::parse();
-    if args.verbose {
-        println!("Running with {:?}", args);
-    }
+fn main() -> anyhow::Result<()> {
+    let args: Cli = Cli::try_parse()?;
+
+    let mut shell = if args.verbose {
+        Shell::Stdout
+    } else {
+        Shell::Noop
+    };
+
+    shell.println(|| format!("Running with {:?}", args));
+
     if !args.source_dir.is_dir() {
-        println!("source_dir must be a dir");
-        process::exit(1);
+        bail!("source_dir must be a dir");
     }
     if !args.source_dir.exists() {
-        println!("source_dir must exist");
-        process::exit(1);
+        bail!("source_dir must exist");
     }
-    let result = dick_sort::sort(args);
-    if result.is_err() {
-        eprint!("Failed: {}", result.unwrap_err().msg);
-    }
-}
 
+    dick_sort::sort(args, &mut shell)
+}

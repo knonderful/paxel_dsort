@@ -1,11 +1,12 @@
+use anyhow::Context;
 use std::cmp::Ordering;
 use std::cmp::Ordering::{Equal, Greater, Less};
-use std::collections::VecDeque;
 use std::fs;
 use std::path::PathBuf;
 
 use exif::DateTime;
 
+use crate::shell::Shell;
 use crate::Cli;
 
 mod file_scanner;
@@ -17,48 +18,48 @@ pub struct CopyImage {
     pub date_time: SortedDayTime,
 }
 
-
 #[derive(Debug)]
 pub struct ReadError {
     pub msg: String,
 }
 
-pub fn sort(args: Cli) -> Result<(), ReadError> {
-    let created_dir = create_target_dir(&args);
-    if created_dir.is_err() {
-        return Err(ReadError { msg: format!("Could not create destination dir {} {}", &args.destination_dir.display(), created_dir.err().unwrap().msg) });
-    }
+pub fn sort(args: Cli, shell: &mut Shell) -> anyhow::Result<()> {
+    create_target_dir(&args, shell).with_context(|| {
+        format!(
+            "Could not create destination dir {}",
+            args.destination_dir.display()
+        )
+    })?;
 
-    let mut unprocessed_directories: VecDeque<PathBuf> = VecDeque::new();
-
-    // add source dir in the queue
-    unprocessed_directories.push_back(args.source_dir.clone());
-
+    // TODO: A generator pattern would work really nicely here.
+    //       That way the caller could decide whether to collect or to immediately process a file.
     // dick_sort dir
-    let files = file_scanner::scan(&args, unprocessed_directories);
+    let files = file_scanner::scan(
+        args.source_dir.clone(),
+        shell,
+        args.progress,
+        args.recursive,
+    )
+    .context("File scanning failed.")?;
 
     process::process(&args, files);
     Ok(())
 }
 
-fn create_target_dir(args: &Cli) -> Result<(), ReadError> {
-    if !args.dry_run && !args.destination_dir.exists() {
-        if args.verbose {
-            println!("Creating Destination dir {}", args.destination_dir.display());
-        }
-        let dir_created = fs::create_dir_all(&args.destination_dir);
-        return match dir_created {
-            Ok(n) => {
-                if args.verbose {
-                    println!("Created {} {:?}", args.destination_dir.display(), n)
-                }
-                Ok(())
-            }
-            Err(e) => {
-                Err(ReadError { msg: e.to_string() })
-            }
-        };
+fn create_target_dir(args: &Cli, shell: &mut Shell) -> anyhow::Result<()> {
+    if args.dry_run || args.destination_dir.exists() {
+        return Ok(());
     }
+
+    let dest_dir_str = args.destination_dir.display().to_string();
+
+    shell.println(|| format!("Creating Destination dir {}", &dest_dir_str));
+
+    fs::create_dir_all(&args.destination_dir)
+        .with_context(|| format!("Could not create destination dir: {}", &dest_dir_str))?;
+
+    shell.println(|| format!("Created {}", &dest_dir_str));
+
     Ok(())
 }
 
@@ -136,8 +137,7 @@ impl PartialOrd<SortedDayTime> for SortedDayTime {
         if self.date_time.second > other.date_time.second {
             return Some(Greater);
         }
-        if self.date_time.second < other.date_time.second
-        {
+        if self.date_time.second < other.date_time.second {
             return Some(Less);
         }
         Some(Equal)
