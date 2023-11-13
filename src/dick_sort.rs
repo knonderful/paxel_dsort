@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use exif::DateTime;
 
-use crate::shell::Shell;
+use crate::shell::{PrintLevel, Shell};
 use crate::Cli;
 
 mod file_scanner;
@@ -53,12 +53,14 @@ fn create_target_dir(args: &Cli, shell: &mut Shell) -> anyhow::Result<()> {
 
     let dest_dir_str = args.destination_dir.display().to_string();
 
-    shell.println(|| format!("Creating Destination dir {}", &dest_dir_str));
+    shell.println(PrintLevel::Verbose, || {
+        format!("Creating Destination dir {}", &dest_dir_str)
+    });
 
     fs::create_dir_all(&args.destination_dir)
         .with_context(|| format!("Could not create destination dir: {}", &dest_dir_str))?;
 
-    shell.println(|| format!("Created {}", &dest_dir_str));
+    shell.println(PrintLevel::Verbose, || format!("Created {}", &dest_dir_str));
 
     Ok(())
 }

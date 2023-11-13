@@ -1,7 +1,7 @@
 use anyhow::bail;
 use std::path::PathBuf;
 
-use crate::shell::Shell;
+use crate::shell::{PrintLevel, Shell};
 use clap::Parser;
 
 mod dick_sort;
@@ -52,13 +52,14 @@ pub struct Cli {
 fn main() -> anyhow::Result<()> {
     let args: Cli = Cli::try_parse()?;
 
-    let mut shell = if args.verbose {
-        Shell::Stdout
+    let print_level = if args.verbose {
+        PrintLevel::Verbose
     } else {
-        Shell::Noop
+        PrintLevel::Normal
     };
+    let mut shell = Shell::new(print_level);
 
-    shell.println(|| format!("Running with {:?}", args));
+    shell.println(PrintLevel::Verbose, || format!("Running with {:?}", args));
 
     if !args.source_dir.is_dir() {
         bail!("source_dir must be a dir");

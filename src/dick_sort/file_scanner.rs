@@ -8,7 +8,7 @@ use exif::{DateTime, *};
 
 use crate::dick_sort::{CopyImage, ReadError, SortedDayTime};
 use crate::progress::{NoopProgressReport, ProgressReport, TerminalProgressReport};
-use crate::shell::Shell;
+use crate::shell::{PrintLevel, Shell};
 
 pub fn scan(
     source_dir: PathBuf,
@@ -56,7 +56,7 @@ fn find_files(
         .ok_or(anyhow!("No more entries"))?;
 
     progress.set_current_dir(&dir)?;
-    shell.println(|| format!("Processing dir {:?}", dir));
+    shell.println(PrintLevel::Verbose, || format!("Processing dir {:?}", dir));
 
     // read the files of the dir
     let read_dir_result =
@@ -66,7 +66,9 @@ fn find_files(
         let entry = match dir_entry_result {
             Ok(entry) => entry,
             Err(err) => {
-                shell.println(|| format!("Error entering path: {:?}: {}", dir, err));
+                shell.println(PrintLevel::Verbose, || {
+                    format!("Error entering path: {:?}: {}", dir, err)
+                });
                 continue;
             }
         };
