@@ -1,10 +1,8 @@
 use anyhow::Context;
-use std::cmp::Ordering;
-use std::cmp::Ordering::{Equal, Greater, Less};
 use std::fs;
 use std::path::PathBuf;
 
-use exif::DateTime;
+use exif::DateTime as ExifDateTime;
 
 use crate::shell::{PrintLevel, Shell};
 use crate::Cli;
@@ -65,126 +63,39 @@ fn create_target_dir(args: &Cli, shell: &mut Shell) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct SortedDayTime {
-    pub date_time: DateTime,
+    pub year: u16,
+    pub month: u8,
+    pub day: u8,
+    pub hour: u8,
+    pub minute: u8,
+    pub second: u8,
+    pub nanosecond: Option<u32>,
+    pub offset: Option<i16>,
 }
 
-impl SortedDayTime {
-    pub fn new(dt: DateTime) -> Self {
-        SortedDayTime { date_time: dt }
-    }
-}
-
-impl PartialEq<SortedDayTime> for SortedDayTime {
-    fn eq(&self, other: &SortedDayTime) -> bool {
-        if self.date_time.year != other.date_time.year {
-            return false;
-        }
-        if self.date_time.month != other.date_time.month {
-            return false;
-        }
-        // todo: offsets?
-
-        if self.date_time.day != other.date_time.day {
-            return false;
-        }
-        if self.date_time.hour != other.date_time.hour {
-            return false;
-        }
-        if self.date_time.minute != other.date_time.minute {
-            return false;
-        }
-        if self.date_time.second != other.date_time.second {
-            return false;
-        }
-        true
+impl From<ExifDateTime> for SortedDayTime {
+    fn from(value: ExifDateTime) -> Self {
+        let ExifDateTime { year , month, day, hour, minute, second, nanosecond, offset } = value;
+        Self { year , month, day, hour, minute, second, nanosecond, offset }
     }
 }
 
-impl PartialOrd<SortedDayTime> for SortedDayTime {
-    fn partial_cmp(&self, other: &SortedDayTime) -> Option<Ordering> {
-        if self.date_time.year > other.date_time.year {
-            return Some(Greater);
-        }
-        if self.date_time.year < other.date_time.year {
-            return Some(Less);
-        }
-        if self.date_time.month > other.date_time.month {
-            return Some(Greater);
-        }
-        if self.date_time.month < other.date_time.month {
-            return Some(Less);
-        }
-        // todo: offsets?
-
-        if self.date_time.day > other.date_time.day {
-            return Some(Greater);
-        }
-        if self.date_time.day < other.date_time.day {
-            return Some(Less);
-        }
-        if self.date_time.hour > other.date_time.hour {
-            return Some(Greater);
-        }
-        if self.date_time.hour < other.date_time.hour {
-            return Some(Less);
-        }
-        if self.date_time.minute > other.date_time.minute {
-            return Some(Greater);
-        }
-        if self.date_time.minute < other.date_time.minute {
-            return Some(Less);
-        }
-        if self.date_time.second > other.date_time.second {
-            return Some(Greater);
-        }
-        if self.date_time.second < other.date_time.second {
-            return Some(Less);
-        }
-        Some(Equal)
-    }
-
-    fn lt(&self, other: &SortedDayTime) -> bool {
-        if let Some(order) = self.partial_cmp(other) {
-            if order == Less {
-                return true;
-            }
-        }
-        false
-    }
-
-    fn le(&self, other: &SortedDayTime) -> bool {
-        if let Some(order) = self.partial_cmp(other) {
-            if order == Less || order == Equal {
-                return true;
-            }
-        }
-        false
-    }
-
-    fn gt(&self, other: &SortedDayTime) -> bool {
-        !self.le(other)
-    }
-
-    fn ge(&self, other: &SortedDayTime) -> bool {
-        !self.lt(other)
-    }
-}
 
 #[cfg(test)]
 mod tests {
-    use exif::DateTime;
+    use exif::DateTime as ExifDateTime;
 
     use crate::dick_sort::SortedDayTime;
 
     #[test]
     fn gt_ge_let_le() {
-        let younger = DateTime::from_ascii(b"2016:05:04 03:02:01").expect("should be ok");
-        let older = DateTime::from_ascii(b"2016:05:04 03:02:00").expect("should be ok");
+        let younger = ExifDateTime::from_ascii(b"2016:05:04 03:02:01").expect("should be ok");
+        let older = ExifDateTime::from_ascii(b"2016:05:04 03:02:00").expect("should be ok");
 
-        let younger = SortedDayTime::new(younger);
-        let older = SortedDayTime::new(older);
+        let younger = SortedDayTime::from(younger);
+        let older = SortedDayTime::from(older);
         assert!(younger > older);
         assert!(younger >= older);
         assert!(older < younger);
@@ -193,11 +104,11 @@ mod tests {
 
     #[test]
     fn eq() {
-        let a = DateTime::from_ascii(b"2016:05:04 03:02:00").expect("should be ok");
-        let also_a = DateTime::from_ascii(b"2016:05:04 03:02:00").expect("should be ok");
+        let a = ExifDateTime::from_ascii(b"2016:05:04 03:02:00").expect("should be ok");
+        let also_a = ExifDateTime::from_ascii(b"2016:05:04 03:02:00").expect("should be ok");
 
-        let b = SortedDayTime::new(a);
-        let still_a = SortedDayTime::new(also_a);
+        let b = SortedDayTime::from(a);
+        let still_a = SortedDayTime::from(also_a);
         assert_eq!(b, still_a);
     }
 }

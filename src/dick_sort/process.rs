@@ -170,15 +170,15 @@ fn create_sub_path(
         .format
         .replace(
             "[YEAR]",
-            format!("{:04}", image.date_time.date_time.year).as_str(),
+            format!("{:04}", image.date_time.year).as_str(),
         )
         .replace(
             "[MONTH]",
-            format!("{:02}", image.date_time.date_time.month).as_str(),
+            format!("{:02}", image.date_time.month).as_str(),
         )
         .replace(
             "[DAY]",
-            format!("{:02}", image.date_time.date_time.day).as_str(),
+            format!("{:02}", image.date_time.day).as_str(),
         );
 
     // add file name

@@ -4,7 +4,7 @@ use std::fs;
 use std::fs::File;
 use std::path::PathBuf;
 
-use exif::{DateTime, *};
+use exif::{DateTime as ExifDateTime, *};
 
 use crate::dick_sort::{CopyImage, ReadError, SortedDayTime};
 use crate::progress::{NoopProgressReport, ProgressReport, TerminalProgressReport};
@@ -145,9 +145,9 @@ fn read_and_validate(exif: &Exif, tag: Tag) -> Option<SortedDayTime> {
     if let Some(field) = exif.get_field(tag, In::PRIMARY) {
         if let Value::Ascii(ref a) = field.value {
             // parse ascii as DateTime or fail
-            if let Ok(new_date) = DateTime::from_ascii(&a[0]) {
+            if let Ok(new_date) = ExifDateTime::from_ascii(&a[0]) {
                 // check if we have a previous value
-                return validate_or(Some(SortedDayTime::new(new_date)), None);
+                return validate_or(Some(SortedDayTime::from(new_date)), None);
             }
         }
     }
@@ -159,11 +159,11 @@ fn validate_or(
     old_date: Option<SortedDayTime>,
 ) -> Option<SortedDayTime> {
     if let Some(dt) = &new_date {
-        if dt.date_time.year > 0
-            && dt.date_time.day > 0
-            && dt.date_time.month > 0
-            && dt.date_time.day < 32
-            && dt.date_time.month < 13
+        if dt.year > 0
+            && dt.day > 0
+            && dt.month > 0
+            && dt.day < 32
+            && dt.month < 13
         {
             return new_date;
         }
